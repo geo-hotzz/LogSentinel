@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>LogSentinel — Log Ingestion System</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg:     #070b0f;
+      --panel:  #0d1117;
+      --panel2: #0a0f15;
+      --border: #1a2535;
+      --accent: #00e5ff;
+      --green:  #00ff88;
+      --red:    #ff2d2d;
+      --orange: #ff6b35;
+      --yellow: #ffd700;
+      --text:   #c9d1d9;
+      --dim:    #4a5568;
+      --mono:   'Share Tech Mono', monospace;
+      --ui:     'Rajdhani', sans-serif;
+    }
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{background:var(--bg);color:var(--text);font-family:var(--ui);min-height:100vh;}
+    body::before{content:'';position:fixed;inset:0;
+      background-image:linear-gradient(rgba(0,229,255,0.02) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(0,229,255,0.02) 1px,transparent 1px);
+      background-size:40px 40px;pointer-events:none;z-index:0;}
+
+    /* TOPBAR */
+    .topbar{position:sticky;top:0;z-index:100;background:rgba(7,11,15,0.96);
+      backdrop-filter:blur(8px);border-bottom:1px solid var(--border);
+      padding:.75rem 2rem;display:flex;align-items:center;justify-content:space-between;}
+    .brand{font-family:var(--mono);font-size:1rem;color:var(--accent);letter-spacing:.15em;}
+    .brand span{color:var(--dim);font-size:.7rem;margin-left:12px;}
+    .status-bar{display:flex;align-items:center;gap:16px;font-family:var(--mono);font-size:.65rem;color:var(--dim);}
+    .sdot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px;}
+    .dot-on{background:var(--green);box-shadow:0 0 6px var(--green);animation:pulse 2s infinite;}
+    .dot-off{background:var(--dim);}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+    /* MAIN */
+    .main{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:1.5rem 2rem 3rem;}
+
+    /* HEADER */
+    .page-header{text-align:center;margin-bottom:2rem;}
+    .page-title{font-size:2.4rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+      background:linear-gradient(135deg,var(--accent) 0%,var(--green) 100%);
+      -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+    .page-sub{font-family:var(--mono);font-size:.7rem;color:var(--dim);letter-spacing:.2em;margin-top:.3rem;}
+    .mitre-badges{display:flex;justify-content:center;gap:8px;margin-top:.75rem;flex-wrap:wrap;}
+    .badge{font-family:var(--mono);font-size:.62rem;padding:2px 8px;border:1px solid var(--accent);
+      color:var(--accent);border-radius:2px;opacity:.6;}
+
+    /* RESULTS NOTICE */
+    .view-results{display:none;background:rgba(0,255,136,.08);border:1px solid var(--green);
+      border-radius:4px;padding:1rem;text-align:center;margin-bottom:1rem;}
+    .view-results.show{display:block;}
+    .view-results a{color:var(--green);font-family:var(--mono);font-size:.8rem;
+      text-decoration:none;letter-spacing:.1em;}
+
+    /* TABS */
+    .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+      background:var(--border);border:1px solid var(--border);
+      border-radius:4px 4px 0 0;overflow:hidden;}
+    .tab{background:var(--panel2);padding:.85rem 1rem;text-align:center;
+      cursor:pointer;font-family:var(--mono);font-size:.68rem;color:var(--dim);
+      letter-spacing:.1em;transition:all .15s;border:none;text-transform:uppercase;}
+    .tab:hover{background:var(--panel);color:var(--text);}
+    .tab.active{background:var(--panel);color:var(--accent);border-bottom:2px solid var(--accent);}
+    .tab-icon{display:block;font-size:1.1rem;margin-bottom:.25rem;}
+
+    /* TAB CONTENT */
+    .tab-content{border:1px solid var(--border);border-top:none;border-radius:0 0 4px 4px;
+      background:var(--panel);padding:1.75rem;margin-bottom:1.5rem;display:none;}
+    .tab-content.active{display:block;}
+    .panel-title{font-family:var(--mono);font-size:.63rem;color:var(--accent);
+      letter-spacing:.2em;text-transform:uppercase;margin-bottom:1.25rem;
+      padding-bottom:.6rem;border-bottom:1px solid var(--border);}
+
+    /* FORMS */
+    .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;}
+    .form-group{display:flex;flex-direction:column;gap:.4rem;}
+    .form-group.full{grid-column:1/-1;}
+    label{font-family:var(--mono);font-size:.6rem;color:var(--dim);
+      text-transform:uppercase;letter-spacing:.1em;}
+    input[type=text],input[type=number],input[type=password],textarea{
+      background:var(--panel2);border:1px solid var(--border);border-radius:3px;
+      padding:.6rem .75rem;font-family:var(--mono);font-size:.78rem;
+      color:var(--text);outline:none;transition:border-color .15s;width:100%;}
+    input:focus,textarea:focus{border-color:var(--accent);}
+    textarea{min-height:220px;resize:vertical;line-height:1.6;}
+
+    /* DROPZONE */
+    .dropzone{border:2px dashed var(--border);border-radius:4px;padding:2.5rem;
+      text-align:center;cursor:pointer;transition:all .2s;position:relative;margin-bottom:1rem;}
+    .dropzone:hover,.dropzone.dragover{border-color:var(--accent);background:rgba(0,229,255,.03);}
+    .dropzone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
+    .drop-icon{font-size:2rem;display:block;opacity:.4;margin-bottom:.5rem;}
+    .drop-label{font-family:var(--mono);font-size:.78rem;color:var(--dim);}
+    .drop-sub{font-size:.7rem;color:var(--dim);opacity:.5;margin-top:.3rem;}
+    .file-selected{font-family:var(--mono);font-size:.7rem;color:var(--green);
+      margin-top:.5rem;display:none;}
+
+    /* BUTTONS */
+    .btn{font-family:var(--mono);font-size:.75rem;letter-spacing:.12em;
+      padding:.75rem 1.5rem;border-radius:3px;cursor:pointer;
+      transition:all .15s;text-transform:uppercase;border:none;position:relative;overflow:hidden;}
+    .btn-primary{background:transparent;border:1px solid var(--accent);color:var(--accent);width:100%;}
+    .btn-primary::before{content:'';position:absolute;inset:0;background:var(--accent);
+      transform:translateX(-100%);transition:transform .2s;z-index:0;}
+    .btn-primary:hover::before{transform:translateX(0);}
+    .btn-primary:hover{color:var(--bg);}
+    .btn-primary span{position:relative;z-index:1;}
+    .btn-green{background:transparent;border:1px solid var(--green);color:var(--green);}
+    .btn-green:hover{background:var(--green);color:var(--bg);}
+    .btn-red{background:transparent;border:1px solid var(--red);color:var(--red);}
+    .btn-red:hover{background:var(--red);color:#fff;}
+    .btn-row{display:flex;gap:.75rem;margin-top:1rem;}
+    .btn-row .btn{flex:1;}
+
+    /* SCHEDULER */
+    .sched-status{background:var(--panel2);border:1px solid var(--border);
+      border-radius:3px;padding:1rem;margin-bottom:1rem;}
+    .sched-row{display:flex;align-items:center;justify-content:space-between;
+      font-family:var(--mono);font-size:.7rem;margin-bottom:.5rem;}
+    .sched-row:last-child{margin-bottom:0;}
+    .sched-label{color:var(--dim);}
+    .sched-value{color:var(--text);}
+    .sched-value.on{color:var(--green);}
+    .sched-value.off{color:var(--dim);}
+
+    /* ALERT */
+    .alert{padding:.7rem 1rem;border-radius:3px;font-family:var(--mono);
+      font-size:.7rem;margin-bottom:1rem;display:none;}
+    .alert-success{background:rgba(0,255,136,.08);border:1px solid rgba(0,255,136,.3);color:var(--green);}
+    .alert-error{background:rgba(255,45,45,.08);border:1px solid rgba(255,45,45,.3);color:var(--red);}
+    .alert-info{background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.3);color:var(--accent);}
+
+    /* LOADING */
+    .loading-overlay{display:none;position:fixed;inset:0;background:rgba(7,11,15,.88);
+      z-index:999;align-items:center;justify-content:center;flex-direction:column;gap:1rem;}
+    .loading-overlay.show{display:flex;}
+    .spinner{width:40px;height:40px;border:2px solid var(--border);border-top-color:var(--accent);
+      border-radius:50%;animation:spin .8s linear infinite;}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .loading-text{font-family:var(--mono);font-size:.8rem;color:var(--accent);}
+
+    /* ACTIVITY LOG */
+    .activity-wrap{background:var(--panel2);border:1px solid var(--border);border-radius:4px;overflow:hidden;}
+    .activity-header{padding:.6rem 1rem;font-family:var(--mono);font-size:.62rem;
+      color:var(--dim);text-transform:uppercase;letter-spacing:.15em;
+      border-bottom:1px solid var(--border);display:flex;justify-content:space-between;}
+    .activity-list{max-height:200px;overflow-y:auto;}
+    .activity-item{display:flex;align-items:center;gap:10px;padding:.5rem 1rem;
+      border-bottom:1px solid var(--border);font-family:var(--mono);font-size:.67rem;}
+    .activity-item:last-child{border-bottom:none;}
+    .activity-time{color:var(--dim);min-width:60px;}
+    .activity-level{min-width:60px;font-size:.58rem;padding:1px 6px;border-radius:2px;text-align:center;}
+    .level-SUCCESS{background:rgba(0,255,136,.1);color:var(--green);}
+    .level-ERROR{background:rgba(255,45,45,.1);color:var(--red);}
+    .level-INFO{background:rgba(0,229,255,.1);color:var(--accent);}
+    .activity-msg{color:var(--text);flex:1;}
+
+    /* SCANLINE */
+    @keyframes scanline{0%{transform:translateY(-100%)}100%{transform:translateY(100vh)}}
+    .scanline{position:fixed;top:0;left:0;right:0;height:2px;
+      background:linear-gradient(transparent,rgba(0,229,255,.05),transparent);
+      animation:scanline 8s linear infinite;pointer-events:none;z-index:9999;}
+
+    @media(max-width:700px){
+      .tabs{grid-template-columns:repeat(2,1fr);}
+      .form-grid{grid-template-columns:1fr;}
+    }
+  </style>
+</head>
+<body>
+<div class="scanline"></div>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">Analyzing...</div>
+</div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="brand">[ LogSentinel ]<span>// Automated Correlation System v1.0</span></div>
+  <div class="status-bar">
+    <span style="cursor:pointer;" onclick="window.location='/alerts'">
+      🔔
+      {% if alert_summary.unread > 0 %}
+      <span style="background:var(--red);color:#fff;font-family:var(--mono);font-size:.55rem;
+        padding:1px 5px;border-radius:10px;margin-left:2px;">{{ alert_summary.unread }}</span>
+      {% endif %}
+    </span>
+    <span><span class="sdot" id="schedulerDot"></span><span id="schedulerTxt">Scheduler: OFF</span></span>
+    <span><span class="sdot dot-on"></span>Watcher: ON</span>
+    <span id="lastFetchTxt">Last: Never</span>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- HEADER -->
+  <div class="page-header">
+    <div class="page-title">LogSentinel</div>
+    <div class="page-sub">// SSH Brute Force &amp; Lateral Movement Detection</div>
+    <div class="mitre-badges">
+      <span class="badge">T1110.001</span>
+      <span class="badge">T1078</span>
+      <span class="badge">T1021.004</span>
+    </div>
+  </div>
+
+  <!-- RESULTS NOTICE -->
+  <div class="view-results {% if state.latest_report %}show{% endif %}" id="viewResults">
+    <a href="/dashboard">&#9654; Latest results available — Click to view Dashboard
+    {% if state.latest_timestamp %} ({{ state.latest_timestamp }}){% endif %}</a>
+  </div>
+
+  <!-- TABS -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('upload',this)">
+      <span class="tab-icon">⬆</span>FILE UPLOAD
+    </button>
+    <button class="tab" onclick="switchTab('ssh',this)">
+      <span class="tab-icon">⚡</span>SSH / SCP
+    </button>
+    <button class="tab" onclick="switchTab('paste',this)">
+      <span class="tab-icon">📋</span>PASTE LOG
+    </button>
+    <button class="tab" onclick="switchTab('scheduler',this)">
+      <span class="tab-icon">⏱</span>SCHEDULER
+    </button>
+  </div>
+
+  <!-- TAB 1: FILE UPLOAD -->
+  <div class="tab-content active" id="tab-upload">
+    <div class="panel-title">// UPLOAD LOG FILE — Drag &amp; Drop or Browse</div>
+    <div id="uploadAlert" class="alert"></div>
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="fileInput" accept=".log,.txt,.out,.syslog"/>
+      <span class="drop-icon">⬡</span>
+      <span class="drop-label">Drop auth.log here or click to browse</span>
+      <div class="drop-sub">Supported: .log / .txt / .out / .syslog — Max 50MB</div>
+      <div class="file-selected" id="fileSelected"></div>
+    </div>
+    <button class="btn btn-primary" onclick="uploadFile()">
+      <span>&#9654; Upload &amp; Analyze</span>
+    </button>
+  </div>
+
+  <!-- TAB 2: SSH -->
+  <div class="tab-content" id="tab-ssh">
+    <div class="panel-title">// SSH / SCP — Pull Log Directly from Remote VM</div>
+    <div id="sshAlert" class="alert"></div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Host / IP Address</label>
+        <input type="text" id="sshHost" value="{{ ssh_config.host }}" placeholder="192.168.56.101"/>
+      </div>
+      <div class="form-group">
+        <label>SSH Port</label>
+        <input type="number" id="sshPort" value="{{ ssh_config.port }}" placeholder="22"/>
+      </div>
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" id="sshUser" value="{{ ssh_config.username }}" placeholder="msfadmin"/>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="sshPass" value="{{ ssh_config.password }}" placeholder="••••••••"/>
+      </div>
+      <div class="form-group full">
+        <label>Remote Log File Path</label>
+        <input type="text" id="sshPath" value="{{ ssh_config.remote_path }}" placeholder="/var/log/auth.log"/>
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="sshFetch()">
+      <span>⚡ Connect &amp; Fetch Log</span>
+    </button>
+  </div>
+
+  <!-- TAB 3: PASTE -->
+  <div class="tab-content" id="tab-paste">
+    <div class="panel-title">// PASTE LOG CONTENT — Copy &amp; Paste Raw Log Text</div>
+    <div id="pasteAlert" class="alert"></div>
+    <div class="form-group" style="margin-bottom:1rem;">
+      <label>Paste auth.log content below</label>
+      <textarea id="pasteContent" placeholder="Paste your log content here...
+
+Example:
+Mar  7 10:23:01 victim sshd[1234]: Failed password for root from 192.168.56.101 port 4444 ssh2
+Mar  7 10:23:02 victim sshd[1234]: Failed password for root from 192.168.56.101 port 4444 ssh2
+Mar  7 10:23:05 victim sshd[1234]: Accepted password for msfadmin from 192.168.56.101 port 4444 ssh2"></textarea>
+    </div>
+    <button class="btn btn-primary" onclick="pasteAnalyze()">
+      <span>&#9654; Analyze Pasted Log</span>
+    </button>
+  </div>
+
+  <!-- TAB 4: SCHEDULER -->
+  <div class="tab-content" id="tab-scheduler">
+    <div class="panel-title">// SCHEDULER — Auto SSH Fetch on Timer</div>
+    <div id="schedAlert" class="alert"></div>
+    <div class="form-grid" style="margin-bottom:1rem;">
+      <div class="form-group">
+        <label>Fetch Interval (minutes)</label>
+        <input type="number" id="schedInterval" value="{{ state.scheduler_interval }}" min="1" max="60"/>
+      </div>
+      <div class="form-group">
+        <label>Target (from SSH tab)</label>
+        <input type="text" value="{{ ssh_config.host }} → {{ ssh_config.remote_path }}" readonly style="opacity:.5;"/>
+      </div>
+    </div>
+    <div class="sched-status">
+      <div class="sched-row">
+        <span class="sched-label">Status</span>
+        <span class="sched-value {% if state.scheduler_running %}on{% else %}off{% endif %}" id="schedStatus">
+          {{ 'RUNNING' if state.scheduler_running else 'STOPPED' }}
+        </span>
+      </div>
+      <div class="sched-row">
+        <span class="sched-label">Interval</span>
+        <span class="sched-value" id="schedIntervalDisplay">Every {{ state.scheduler_interval }} min</span>
+      </div>
+      <div class="sched-row">
+        <span class="sched-label">Last Fetch</span>
+        <span class="sched-value" id="schedLastFetch">{{ state.last_fetch_status }}</span>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-green" onclick="startScheduler()">&#9654; Start Scheduler</button>
+      <button class="btn btn-red"   onclick="stopScheduler()">&#9646;&#9646; Stop Scheduler</button>
+    </div>
+    <div style="margin-top:1rem;padding:.75rem;background:var(--panel2);border:1px solid var(--border);
+      border-radius:3px;font-family:var(--mono);font-size:.63rem;color:var(--dim);">
+      ⚠ Configure SSH settings in the SSH tab first before starting the scheduler.
+      Results auto-save to the results/ folder.
+    </div>
+  </div>
+
+  <!-- ACTIVITY LOG -->
+  <div class="activity-wrap">
+    <div class="activity-header">
+      <span>// Activity Log</span>
+      <span id="actCount">{{ state.activity_log | length }} entries</span>
+    </div>
+    <div class="activity-list" id="activityList">
+      {% if state.activity_log %}
+        {% for e in state.activity_log %}
+        <div class="activity-item">
+          <span class="activity-time">{{ e.time }}</span>
+          <span class="activity-level level-{{ e.level }}">{{ e.level }}</span>
+          <span class="activity-msg">{{ e.message }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="activity-item">
+          <span class="activity-msg" style="color:var(--dim);">
+            No activity yet — upload or fetch a log to begin.
+          </span>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<script>
+  function switchTab(name, el) {
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    el.classList.add('active');
+  }
+
+  function showLoading(text) {
+    document.getElementById('loadingText').textContent = text || 'Analyzing...';
+    document.getElementById('loadingOverlay').classList.add('show');
+  }
+
+  function hideLoading() {
+    document.getElementById('loadingOverlay').classList.remove('show');
+  }
+
+  function showAlert(id, msg, type) {
+    const el = document.getElementById(id);
+    el.className = `alert alert-${type}`;
+    el.textContent = msg;
+    el.style.display = 'block';
+    if (type === 'success') setTimeout(() => el.style.display = 'none', 4000);
+  }
+
+  // File Upload
+  const fileInput    = document.getElementById('fileInput');
+  const fileSelected = document.getElementById('fileSelected');
+  const dropzone     = document.getElementById('dropzone');
+
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) {
+      fileSelected.textContent = '> ' + fileInput.files[0].name +
+        ' (' + (fileInput.files[0].size / 1024).toFixed(1) + ' KB)';
+      fileSelected.style.display = 'block';
+    }
+  });
+
+  ['dragover','dragenter'].forEach(e =>
+    dropzone.addEventListener(e, ev => { ev.preventDefault(); dropzone.classList.add('dragover'); }));
+  ['dragleave','drop'].forEach(e =>
+    dropzone.addEventListener(e, ev => { ev.preventDefault(); dropzone.classList.remove('dragover'); }));
+
+  async function uploadFile() {
+    if (!fileInput.files.length) {
+      showAlert('uploadAlert', 'Please select a log file first.', 'error'); return;
+    }
+    const fd = new FormData();
+    fd.append('logfile', fileInput.files[0]);
+    showLoading('Uploading and analyzing...');
+    try {
+      const res  = await fetch('/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      hideLoading();
+      if (data.success) {
+        if (data.new_alerts > 0) fireAlerts(data.alerts);
+        setTimeout(() => window.location.href = '/dashboard', data.new_alerts > 0 ? 1200 : 0);
+      }
+      else showAlert('uploadAlert', data.error || 'Upload failed', 'error');
+    } catch(e) { hideLoading(); showAlert('uploadAlert', 'Request failed: ' + e.message, 'error'); }
+  }
+
+  // SSH Fetch
+  async function sshFetch() {
+    const cfg = {
+      host        : document.getElementById('sshHost').value.trim(),
+      port        : document.getElementById('sshPort').value.trim(),
+      username    : document.getElementById('sshUser').value.trim(),
+      password    : document.getElementById('sshPass').value.trim(),
+      remote_path : document.getElementById('sshPath').value.trim()
+    };
+    if (!cfg.host || !cfg.username) {
+      showAlert('sshAlert', 'Host and username are required.', 'error'); return;
+    }
+    showLoading(`Connecting to ${cfg.host}...`);
+    try {
+      const res  = await fetch('/ssh-fetch', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(cfg)
+      });
+      const data = await res.json();
+      hideLoading();
+      if (data.success) window.location.href = '/dashboard';
+      else showAlert('sshAlert', data.message || 'SSH fetch failed', 'error');
+    } catch(e) { hideLoading(); showAlert('sshAlert', 'Request failed: ' + e.message, 'error'); }
+  }
+
+  // Paste Analyze
+  async function pasteAnalyze() {
+    const content = document.getElementById('pasteContent').value.trim();
+    if (!content) { showAlert('pasteAlert', 'Please paste log content first.', 'error'); return; }
+    showLoading('Analyzing pasted log...');
+    try {
+      const res  = await fetch('/paste', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ content })
+      });
+      const data = await res.json();
+      hideLoading();
+      if (data.success) window.location.href = '/dashboard';
+      else showAlert('pasteAlert', data.error || 'Analysis failed', 'error');
+    } catch(e) { hideLoading(); showAlert('pasteAlert', 'Request failed: ' + e.message, 'error'); }
+  }
+
+  // Scheduler
+  async function startScheduler() {
+    const interval = parseInt(document.getElementById('schedInterval').value) || 5;
+    const res  = await fetch('/scheduler/start', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ interval })
+    });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('schedStatus').textContent = 'RUNNING';
+      document.getElementById('schedStatus').className   = 'sched-value on';
+      document.getElementById('schedIntervalDisplay').textContent = `Every ${interval} min`;
+      showAlert('schedAlert', data.message, 'success');
+    }
+  }
+
+  async function stopScheduler() {
+    const res  = await fetch('/scheduler/stop', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      document.getElementById('schedStatus').textContent = 'STOPPED';
+      document.getElementById('schedStatus').className   = 'sched-value off';
+      showAlert('schedAlert', data.message, 'info');
+    }
+  }
+
+  // Status polling every 10s
+  async function pollStatus() {
+    try {
+      const res  = await fetch('/api/status');
+      const data = await res.json();
+      const dot  = document.getElementById('schedulerDot');
+      dot.className = 'sdot ' + (data.scheduler_running ? 'dot-on' : 'dot-off');
+      document.getElementById('schedulerTxt').textContent =
+        'Scheduler: ' + (data.scheduler_running ? `ON (${data.scheduler_interval}min)` : 'OFF');
+      document.getElementById('lastFetchTxt').textContent =
+        'Last: ' + (data.latest_timestamp || 'Never');
+      document.getElementById('schedLastFetch').textContent = data.last_fetch_status;
+      if (data.latest_timestamp) document.getElementById('viewResults').classList.add('show');
+      if (data.activity_log && data.activity_log.length) {
+        const list = document.getElementById('activityList');
+        list.innerHTML = data.activity_log.map(e => `
+          <div class="activity-item">
+            <span class="activity-time">${e.time}</span>
+            <span class="activity-level level-${e.level}">${e.level}</span>
+            <span class="activity-msg">${e.message}</span>
+          </div>`).join('');
+        document.getElementById('actCount').textContent = data.activity_log.length + ' entries';
+      }
+    } catch(e) {}
+  }
+
+  setInterval(pollStatus, 10000);
+  pollStatus();
+
+  // IR Alert functions
+  function playAlertSound(severity) {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator(); const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(severity === 'CRITICAL' ? 880 : 660, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.3);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
+    } catch(e) {}
+  }
+
+  function fireAlerts(alerts) {
+    if (!alerts || !alerts.length) return;
+    const highest = alerts.find(a => a.severity === 'CRITICAL') || alerts[0];
+    playAlertSound(highest.severity);
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('[LogSentinel] ' + highest.title, { body: highest.ip + ' — ' + alerts.length + ' alert(s)' });
+    } else if ('Notification' in window) {
+      Notification.requestPermission();
+    }
+  }
+
+</script>
+</body>
+</html>

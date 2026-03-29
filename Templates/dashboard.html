@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>LogSentinel — Detection Report</title>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    :root{
+      --bg:#070b0f;--panel:#0d1117;--panel2:#0a0f15;--border:#1a2535;
+      --accent:#00e5ff;--green:#00ff88;--red:#ff2d2d;--orange:#ff6b35;
+      --yellow:#ffd700;--text:#c9d1d9;--dim:#4a5568;
+      --mono:'Share Tech Mono',monospace;--ui:'Rajdhani',sans-serif;
+    }
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{background:var(--bg);color:var(--text);font-family:var(--ui);min-height:100vh;}
+    body::before{content:'';position:fixed;inset:0;
+      background-image:linear-gradient(rgba(0,229,255,.02) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(0,229,255,.02) 1px,transparent 1px);
+      background-size:40px 40px;pointer-events:none;z-index:0;}
+
+    /* TOPBAR */
+    .topbar{position:sticky;top:0;z-index:100;background:rgba(7,11,15,.96);
+      backdrop-filter:blur(8px);border-bottom:1px solid var(--border);
+      padding:.75rem 2rem;display:flex;align-items:center;justify-content:space-between;}
+    .topbar-brand{display:flex;align-items:center;gap:10px;}
+    .brand-name{font-family:var(--mono);font-size:1rem;color:var(--accent);letter-spacing:.15em;}
+    .brand-sep{color:var(--dim);margin:0 4px;}
+    .brand-file{font-family:var(--mono);font-size:.68rem;color:var(--dim);}
+    .topbar-actions{display:flex;gap:10px;}
+    .btn{font-family:var(--mono);font-size:.68rem;letter-spacing:.1em;padding:.45rem 1rem;
+      border-radius:2px;cursor:pointer;transition:all .15s;text-transform:uppercase;}
+    .btn-outline{background:transparent;border:1px solid var(--dim);color:var(--dim);}
+    .btn-outline:hover{border-color:var(--text);color:var(--text);}
+    .btn-pdf{background:transparent;border:1px solid var(--accent);color:var(--accent);}
+    .btn-pdf:hover{background:var(--accent);color:var(--bg);}
+
+    /* MAIN */
+    .main{position:relative;z-index:1;max-width:1400px;margin:0 auto;padding:1.5rem 2rem 3rem;}
+
+    /* STAT CARDS */
+    .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));
+      gap:1px;background:var(--border);border:1px solid var(--border);
+      border-radius:4px;overflow:hidden;margin-bottom:1.5rem;}
+    .stat-card{background:var(--panel);padding:1.1rem 1rem;position:relative;}
+    .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;}
+    .stat-card.c-critical::before{background:var(--red);}
+    .stat-card.c-high::before{background:var(--orange);}
+    .stat-card.c-suspicious::before{background:var(--yellow);}
+    .stat-card.c-normal::before{background:var(--green);}
+    .stat-card.c-neutral::before{background:var(--accent);}
+    .stat-label{font-family:var(--mono);font-size:.58rem;color:var(--dim);
+      text-transform:uppercase;letter-spacing:.15em;margin-bottom:.4rem;}
+    .stat-value{font-size:2rem;font-weight:700;line-height:1;margin-bottom:.25rem;}
+    .stat-card.c-critical .stat-value{color:var(--red);}
+    .stat-card.c-high .stat-value{color:var(--orange);}
+    .stat-card.c-suspicious .stat-value{color:var(--yellow);}
+    .stat-card.c-normal .stat-value{color:var(--green);}
+    .stat-card.c-neutral .stat-value{color:var(--accent);}
+    .stat-sub{font-size:.68rem;color:var(--dim);}
+
+    /* CHARTS */
+    .charts-grid{display:grid;grid-template-columns:1fr 1fr 260px;gap:1px;
+      background:var(--border);border:1px solid var(--border);
+      border-radius:4px;overflow:hidden;margin-bottom:1.5rem;}
+    .chart-panel{background:var(--panel);padding:1.25rem;}
+    .chart-title{font-family:var(--mono);font-size:.62rem;color:var(--dim);
+      text-transform:uppercase;letter-spacing:.15em;margin-bottom:1rem;
+      padding-bottom:.5rem;border-bottom:1px solid var(--border);}
+    .chart-title em{color:var(--accent);font-style:normal;margin-right:6px;}
+    .chart-wrap{position:relative;height:220px;}
+
+    /* TABLE */
+    .sec-header{font-family:var(--mono);font-size:.62rem;color:var(--dim);
+      text-transform:uppercase;letter-spacing:.15em;padding:.75rem 1rem;
+      background:var(--panel);border:1px solid var(--border);
+      border-bottom:none;border-radius:4px 4px 0 0;}
+    .sec-header em{color:var(--accent);font-style:normal;margin-right:6px;}
+    .table-wrap{border:1px solid var(--border);border-radius:0 0 4px 4px;
+      overflow:hidden;margin-bottom:1.5rem;}
+    table{width:100%;border-collapse:collapse;}
+    thead tr{background:var(--panel2);}
+    th{font-family:var(--mono);font-size:.58rem;color:var(--dim);text-transform:uppercase;
+      letter-spacing:.1em;padding:.65rem 1rem;text-align:left;border-bottom:1px solid var(--border);}
+    tbody tr{background:var(--panel);border-bottom:1px solid var(--border);transition:background .1s;}
+    tbody tr:hover{background:rgba(0,229,255,.03);}
+    tbody tr:last-child{border-bottom:none;}
+    td{padding:.7rem 1rem;font-size:.83rem;}
+    td.mono{font-family:var(--mono);font-size:.72rem;}
+    .risk-badge{font-family:var(--mono);font-size:.6rem;padding:3px 8px;
+      border-radius:2px;font-weight:600;letter-spacing:.08em;}
+    .badge-CRITICAL{background:rgba(255,45,45,.15);color:var(--red);border:1px solid rgba(255,45,45,.3);}
+    .badge-HIGH{background:rgba(255,107,53,.15);color:var(--orange);border:1px solid rgba(255,107,53,.3);}
+    .badge-SUSPICIOUS{background:rgba(255,215,0,.1);color:var(--yellow);border:1px solid rgba(255,215,0,.3);}
+    .badge-NORMAL{background:rgba(0,255,136,.08);color:var(--green);border:1px solid rgba(0,255,136,.2);}
+    .score-wrap{display:flex;align-items:center;gap:8px;}
+    .score-bar{flex:1;height:4px;background:var(--border);border-radius:2px;overflow:hidden;min-width:50px;}
+    .score-bar-fill{height:100%;border-radius:2px;}
+    .score-num{font-family:var(--mono);font-size:.68rem;min-width:22px;text-align:right;}
+
+    /* KILL CHAINS */
+    .kc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(440px,1fr));
+      gap:1rem;margin-bottom:1.5rem;}
+    .kc-card{background:var(--panel);border:1px solid var(--border);
+      border-left:3px solid var(--red);border-radius:0 4px 4px 0;overflow:hidden;}
+    .kc-header{display:flex;align-items:center;justify-content:space-between;
+      padding:.7rem 1rem;background:rgba(255,45,45,.06);border-bottom:1px solid var(--border);}
+    .kc-title{font-family:var(--mono);font-size:.68rem;color:var(--red);letter-spacing:.1em;}
+    .kc-ip{font-family:var(--mono);font-size:.63rem;color:var(--dim);}
+    .kc-stages{display:grid;grid-template-columns:repeat(3,1fr);}
+    .kc-stage{padding:.9rem;border-right:1px solid var(--border);position:relative;}
+    .kc-stage:last-child{border-right:none;}
+    .kc-stage-num{font-family:var(--mono);font-size:.53rem;color:var(--dim);
+      letter-spacing:.1em;margin-bottom:.35rem;}
+    .kc-stage-label{font-size:.72rem;font-weight:600;margin-bottom:.5rem;}
+    .kc-stage:nth-child(1) .kc-stage-label{color:var(--red);}
+    .kc-stage:nth-child(2) .kc-stage-label{color:var(--orange);}
+    .kc-stage:nth-child(3) .kc-stage-label{color:var(--yellow);}
+    .kc-field{font-family:var(--mono);font-size:.6rem;color:var(--dim);line-height:1.8;}
+    .kc-field strong{color:var(--text);font-weight:normal;}
+    .kc-ttp{font-family:var(--mono);font-size:.56rem;color:var(--accent);margin-top:.4rem;opacity:.7;}
+    .kc-stage:not(:last-child)::after{content:'→';position:absolute;right:-8px;top:50%;
+      transform:translateY(-50%);color:var(--dim);font-size:.75rem;z-index:2;}
+
+    /* NO DATA */
+    .no-data{text-align:center;padding:3rem;font-family:var(--mono);font-size:.78rem;
+      color:var(--dim);background:var(--panel);border:1px solid var(--border);border-radius:4px;}
+    .no-data::before{content:'[OK] ';color:var(--green);}
+
+    /* ALERT BELL */
+    .alert-bell{position:relative;cursor:pointer;}
+    .bell-badge{position:absolute;top:-6px;right:-6px;background:var(--red);
+      color:#fff;font-family:var(--mono);font-size:.55rem;
+      width:16px;height:16px;border-radius:50%;
+      display:flex;align-items:center;justify-content:center;
+      animation:pulse-badge .8s ease infinite;}
+    @keyframes pulse-badge{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+
+    /* ALERT TOAST */
+    .toast-container{position:fixed;top:70px;right:20px;z-index:9998;
+      display:flex;flex-direction:column;gap:8px;max-width:360px;}
+    .toast{background:var(--panel);border:1px solid var(--border);
+      border-radius:4px;padding:.85rem 1rem;
+      display:flex;align-items:flex-start;gap:10px;
+      animation:slideIn .3s ease;box-shadow:0 4px 20px rgba(0,0,0,.5);}
+    .toast.toast-CRITICAL{border-left:3px solid var(--red);}
+    .toast.toast-HIGH{border-left:3px solid var(--orange);}
+    @keyframes slideIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+    @keyframes slideOut{from{transform:translateX(0);opacity:1}to{transform:translateX(100%);opacity:0}}
+    .toast-icon{font-size:1.1rem;flex-shrink:0;margin-top:1px;}
+    .toast-body{flex:1;}
+    .toast-title{font-size:.82rem;font-weight:600;margin-bottom:.15rem;}
+    .toast-CRITICAL .toast-title{color:var(--red);}
+    .toast-HIGH .toast-title{color:var(--orange);}
+    .toast-detail{font-family:var(--mono);font-size:.62rem;color:var(--dim);}
+    .toast-close{cursor:pointer;color:var(--dim);font-size:.75rem;
+      flex-shrink:0;margin-top:1px;padding:2px;}
+    .toast-close:hover{color:var(--text);}
+
+    /* SCANLINE */
+    @keyframes scanline{0%{transform:translateY(-100%)}100%{transform:translateY(100vh)}}
+    .scanline{position:fixed;top:0;left:0;right:0;height:2px;
+      background:linear-gradient(transparent,rgba(0,229,255,.05),transparent);
+      animation:scanline 8s linear infinite;pointer-events:none;z-index:9999;}
+
+    @media(max-width:900px){
+      .charts-grid{grid-template-columns:1fr;}
+      .kc-grid{grid-template-columns:1fr;}
+      .kc-stages{grid-template-columns:1fr;}
+      .kc-stage::after{display:none;}
+    }
+  </style>
+</head>
+<body>
+<div class="scanline"></div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="topbar-brand">
+    <span class="brand-name">[ LogSentinel ]</span>
+    <span class="brand-sep">//</span>
+    <span class="brand-file">{{ filename }}
+      {% if timestamp %} — {{ timestamp }}{% endif %}
+    </span>
+  </div>
+  <div class="topbar-actions">
+    <div class="alert-bell" onclick="window.location='/alerts'" title="IR Alerts">
+      <span style="font-size:1.2rem;">🔔</span>
+      {% if alert_summary.unread > 0 %}
+      <span class="bell-badge">{{ alert_summary.unread }}</span>
+      {% endif %}
+    </div>
+    <button class="btn btn-outline" onclick="window.location='/'">&#8592; New Scan</button>
+    <button class="btn btn-outline" onclick="window.location='/alerts'"
+      style="border-color:{% if alert_summary.critical > 0 %}var(--red){% else %}var(--dim){% endif %};color:{% if alert_summary.critical > 0 %}var(--red){% else %}var(--dim){% endif %};">
+      ⚠ Alerts ({{ alert_summary.total }})
+    </button>
+    <button class="btn btn-pdf" onclick="exportPDF()" id="pdfBtn">&#8595; Export PDF</button>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toastContainer"></div>
+
+<div class="main" id="reportContent">
+
+  <!-- STAT CARDS -->
+  <div class="stat-grid">
+    <div class="stat-card c-critical">
+      <div class="stat-label">Critical</div>
+      <div class="stat-value">{{ summary.totals.critical }}</div>
+      <div class="stat-sub">IPs</div>
+    </div>
+    <div class="stat-card c-high">
+      <div class="stat-label">High</div>
+      <div class="stat-value">{{ summary.totals.high }}</div>
+      <div class="stat-sub">IPs</div>
+    </div>
+    <div class="stat-card c-suspicious">
+      <div class="stat-label">Suspicious</div>
+      <div class="stat-value">{{ summary.totals.suspicious }}</div>
+      <div class="stat-sub">IPs</div>
+    </div>
+    <div class="stat-card c-normal">
+      <div class="stat-label">Normal</div>
+      <div class="stat-value">{{ summary.totals.normal }}</div>
+      <div class="stat-sub">IPs</div>
+    </div>
+    <div class="stat-card c-neutral">
+      <div class="stat-label">Total IPs</div>
+      <div class="stat-value">{{ summary.totals.ips }}</div>
+      <div class="stat-sub">Analyzed</div>
+    </div>
+    <div class="stat-card c-neutral">
+      <div class="stat-label">Failures</div>
+      <div class="stat-value">{{ summary.totals.failed }}</div>
+      <div class="stat-sub">Auth events</div>
+    </div>
+    <div class="stat-card c-neutral">
+      <div class="stat-label">Successes</div>
+      <div class="stat-value">{{ summary.totals.success }}</div>
+      <div class="stat-sub">Auth events</div>
+    </div>
+    <div class="stat-card c-critical">
+      <div class="stat-label">Kill Chains</div>
+      <div class="stat-value">{{ summary.totals.kill_chains }}</div>
+      <div class="stat-sub">Compromises</div>
+    </div>
+    <div class="stat-card c-high">
+      <div class="stat-label">Lateral Mvmt</div>
+      <div class="stat-value">{{ summary.totals.lateral }}</div>
+      <div class="stat-sub">Pivots</div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="charts-grid">
+    <div class="chart-panel">
+      <div class="chart-title"><em>//</em>Risk Score — Top IPs</div>
+      <div class="chart-wrap"><canvas id="scoreChart"></canvas></div>
+    </div>
+    <div class="chart-panel">
+      <div class="chart-title"><em>//</em>Auth Events — Failures vs Successes</div>
+      <div class="chart-wrap"><canvas id="authChart"></canvas></div>
+    </div>
+    <div class="chart-panel">
+      <div class="chart-title"><em>//</em>Risk Distribution</div>
+      <div class="chart-wrap"><canvas id="distChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- IP TABLE -->
+  <div class="sec-header"><em>//</em>IP ANALYSIS TABLE</div>
+  <div class="table-wrap">
+    {% if report %}
+    <table>
+      <thead>
+        <tr>
+          <th>Source IP</th><th>Risk Level</th><th>Risk Score</th>
+          <th>Failures</th><th>Successes</th><th>Bursts</th>
+          <th>BF Sequences</th><th>Lateral Mvmt</th><th>Kill Chains</th><th>Users Targeted</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ip, data in report.items() %}
+        <tr>
+          <td class="mono">{{ ip }}</td>
+          <td><span class="risk-badge badge-{{ data.risk_level }}">{{ data.risk_level }}</span></td>
+          <td>
+            <div class="score-wrap">
+              <div class="score-bar">
+                <div class="score-bar-fill" style="
+                  width:{{ [data.risk_score * 2, 100] | min }}%;
+                  background:{% if data.risk_level=='CRITICAL' %}#ff2d2d
+                    {% elif data.risk_level=='HIGH' %}#ff6b35
+                    {% elif data.risk_level=='SUSPICIOUS' %}#ffd700
+                    {% else %}#00ff88{% endif %};">
+                </div>
+              </div>
+              <span class="score-num">{{ data.risk_score }}</span>
+            </div>
+          </td>
+          <td class="mono">{{ data.summary.total_failures }}</td>
+          <td class="mono">{{ data.summary.total_successes }}</td>
+          <td class="mono">{{ data.indicators.fail_bursts }}</td>
+          <td class="mono">{{ data.indicators.brute_force_sequences }}</td>
+          <td class="mono">{{ data.indicators.lateral_movement_hits }}</td>
+          <td class="mono">{{ data.kill_chains | length }}</td>
+          <td class="mono">{{ data.summary.users_list | join(', ') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="no-data">No IPs analyzed — ensure the log file contains SSH entries.</div>
+    {% endif %}
+  </div>
+
+  <!-- KILL CHAINS -->
+  {% set ns = namespace(has_chains=false) %}
+  {% for ip, data in report.items() %}
+    {% if data.kill_chains | length > 0 %}{% set ns.has_chains = true %}{% endif %}
+  {% endfor %}
+
+  {% if ns.has_chains %}
+  <div class="sec-header" style="border-radius:4px 4px 0 0;">
+    <em>//</em>FULL KILL CHAINS DETECTED
+  </div>
+  <div style="border:1px solid var(--border);border-top:none;border-radius:0 0 4px 4px;
+    padding:1rem;background:var(--panel);margin-bottom:1.5rem;">
+    <div class="kc-grid">
+      {% for ip, data in report.items() %}
+        {% for chain in data.kill_chains %}
+        <div class="kc-card">
+          <div class="kc-header">
+            <span class="kc-title">⚠ KILL CHAIN DETECTED</span>
+            <span class="kc-ip">{{ ip }}</span>
+          </div>
+          <div class="kc-stages">
+            <div class="kc-stage">
+              <div class="kc-stage-num">STAGE 01</div>
+              <div class="kc-stage-label">Brute Force</div>
+              <div class="kc-field">
+                Failures: <strong>{{ chain.stage_1_brute_force.failures }}</strong><br>
+                Start: <strong>{{ chain.stage_1_brute_force.start_time }}</strong><br>
+                End: <strong>{{ chain.stage_1_brute_force.end_time }}</strong>
+              </div>
+              <div class="kc-ttp">{{ chain.stage_1_brute_force.ttp }}</div>
+            </div>
+            <div class="kc-stage">
+              <div class="kc-stage-num">STAGE 02</div>
+              <div class="kc-stage-label">Initial Access</div>
+              <div class="kc-field">
+                User: <strong>{{ chain.stage_2_initial_access.user }}</strong><br>
+                Time: <strong>{{ chain.stage_2_initial_access.compromise_time }}</strong>
+              </div>
+              <div class="kc-ttp">{{ chain.stage_2_initial_access.ttp }}</div>
+            </div>
+            <div class="kc-stage">
+              <div class="kc-stage-num">STAGE 03</div>
+              <div class="kc-stage-label">Lateral Movement</div>
+              <div class="kc-field">
+                Target: <strong>{{ chain.stage_3_lateral_movement.target_ip }}</strong><br>
+                Pivot: <strong>{{ chain.stage_3_lateral_movement.pivot_time }}</strong><br>
+                Delta: <strong>{{ chain.stage_3_lateral_movement.delta_minutes }} min</strong>
+              </div>
+              <div class="kc-ttp">{{ chain.stage_3_lateral_movement.ttp }}</div>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- CHART DATA -->
+<script>
+  const CD = {
+    labels  : {{ summary.charts.labels  | tojson }},
+    scores  : {{ summary.charts.scores  | tojson }},
+    failed  : {{ summary.charts.failed  | tojson }},
+    success : {{ summary.charts.success | tojson }},
+    levels  : {{ summary.charts.levels  | tojson }},
+    rLabels : {{ summary.risk_dist.labels | tojson }},
+    rData   : {{ summary.risk_dist.data   | tojson }},
+    rColors : {{ summary.risk_dist.colors | tojson }}
+  };
+
+  const mFont = { family:"'Share Tech Mono',monospace", size:10 };
+  Chart.defaults.color = '#4a5568';
+  Chart.defaults.font  = mFont;
+
+  const barColors = lvls => lvls.map(l =>
+    ({CRITICAL:'#ff2d2d',HIGH:'#ff6b35',SUSPICIOUS:'#ffd700',NORMAL:'#00ff88'}[l]||'#00e5ff'));
+
+  new Chart(document.getElementById('scoreChart'), {
+    type:'bar',
+    data:{ labels:CD.labels, datasets:[{
+      label:'Risk Score', data:CD.scores,
+      backgroundColor:barColors(CD.levels), borderRadius:2, borderSkipped:false
+    }]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{display:false}},
+      scales:{ x:{grid:{color:'#1a2535'},ticks:{maxRotation:45}},
+               y:{grid:{color:'#1a2535'},beginAtZero:true} }}
+  });
+
+  new Chart(document.getElementById('authChart'), {
+    type:'bar',
+    data:{ labels:CD.labels, datasets:[
+      {label:'Failures', data:CD.failed,  backgroundColor:'rgba(255,45,45,.7)',  borderRadius:2},
+      {label:'Successes',data:CD.success, backgroundColor:'rgba(0,255,136,.7)', borderRadius:2}
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#4a5568',boxWidth:10,font:mFont}}},
+      scales:{ x:{grid:{color:'#1a2535'},ticks:{maxRotation:45}},
+               y:{grid:{color:'#1a2535'},beginAtZero:true} }}
+  });
+
+  new Chart(document.getElementById('distChart'), {
+    type:'doughnut',
+    data:{ labels:CD.rLabels, datasets:[{
+      data:CD.rData,
+      backgroundColor:CD.rColors.map(c=>c+'bb'),
+      borderColor:CD.rColors, borderWidth:1
+    }]},
+    options:{ responsive:true, maintainAspectRatio:false, cutout:'65%',
+      plugins:{legend:{position:'bottom',
+        labels:{color:'#4a5568',boxWidth:10,font:mFont,padding:12}}} }
+  });
+
+  // PDF EXPORT
+  async function exportPDF() {
+    const btn = document.getElementById('pdfBtn');
+    btn.textContent = 'Generating...';
+    btn.disabled = true;
+    try {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation:'landscape', unit:'mm', format:'a4' });
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      const ts = new Date().toISOString().replace('T',' ').substring(0,19) + ' UTC';
+
+      // Colors
+      const bg=[7,11,15],panel=[13,17,23],accent=[0,229,255],dim=[74,85,104];
+      const text=[201,209,217],red=[255,45,45],orange=[255,107,53];
+      const yellow=[255,215,0],green=[0,255,136];
+
+      // PAGE 1: Cover
+      doc.setFillColor(...bg); doc.rect(0,0,W,H,'F');
+      doc.setFillColor(...accent); doc.rect(0,0,W,1.5,'F');
+      doc.setDrawColor(0,229,255,10); doc.setLineWidth(.1);
+      for(let x=0;x<W;x+=10) doc.line(x,0,x,H);
+      for(let y=0;y<H;y+=10) doc.line(0,y,W,y);
+
+      doc.setTextColor(...accent); doc.setFontSize(48); doc.setFont('helvetica','bold');
+      doc.text('[', 28, 90); doc.text(']', W-38, 90);
+      doc.setFontSize(36); doc.text('LogSentinel', W/2, 75, {align:'center'});
+      doc.setFontSize(10); doc.setTextColor(...dim); doc.setFont('helvetica','normal');
+      doc.text('AUTOMATED CORRELATION SYSTEM', W/2, 85, {align:'center'});
+      doc.text('SSH Brute Force & Lateral Movement Detection Report', W/2, 92, {align:'center'});
+      doc.setDrawColor(...accent); doc.setLineWidth(.5);
+      doc.line(W/2-60, 97, W/2+60, 97);
+      doc.setFontSize(8.5); doc.text(`Generated: ${ts}`, W/2, 105, {align:'center'});
+      doc.text(`Source: {{ filename }}`, W/2, 111, {align:'center'});
+
+      const ttps = ['T1110.001','T1078','T1021.004'];
+      const bW=32,bH=7,startX=W/2-(ttps.length*(bW+4))/2;
+      ttps.forEach((t,i)=>{
+        const bx=startX+i*(bW+4);
+        doc.setDrawColor(...accent); doc.setFillColor(0,229,255,20);
+        doc.roundedRect(bx,118,bW,bH,1,1,'FD');
+        doc.setTextColor(...accent); doc.setFontSize(7.5);
+        doc.text(t, bx+bW/2, 123.5, {align:'center'});
+      });
+
+      // Summary stats
+      const stats=[
+        ['TOTAL IPs','{{ summary.totals.ips }}',accent],
+        ['CRITICAL','{{ summary.totals.critical }}',red],
+        ['HIGH','{{ summary.totals.high }}',orange],
+        ['SUSPICIOUS','{{ summary.totals.suspicious }}',yellow],
+        ['KILL CHAINS','{{ summary.totals.kill_chains }}',red],
+        ['LATERAL','{{ summary.totals.lateral }}',orange],
+        ['FAILURES','{{ summary.totals.failed }}',dim],
+        ['SUCCESSES','{{ summary.totals.success }}',green],
+      ];
+      const sW=W/stats.length;
+      stats.forEach(([lbl,val,col],i)=>{
+        const sx=i*sW;
+        doc.setFillColor(...panel); doc.rect(sx,H-30,sW,30,'F');
+        if(i>0){doc.setDrawColor(...bg);doc.line(sx,H-30,sx,H);}
+        doc.setTextColor(...col); doc.setFontSize(16); doc.setFont('helvetica','bold');
+        doc.text(String(val),sx+sW/2,H-14,{align:'center'});
+        doc.setFontSize(6); doc.setTextColor(...dim); doc.setFont('helvetica','normal');
+        doc.text(lbl,sx+sW/2,H-6,{align:'center'});
+      });
+      doc.setFillColor(...accent); doc.rect(0,H-1.5,W,1.5,'F');
+
+      // PAGE 2: IP Table
+      doc.addPage();
+      doc.setFillColor(...bg); doc.rect(0,0,W,H,'F');
+      doc.setFillColor(...accent); doc.rect(0,0,W,1.5,'F');
+      doc.setFontSize(9); doc.setTextColor(...accent);
+      doc.text('// IP ANALYSIS TABLE', 10, 13);
+      doc.setFontSize(6.5); doc.setTextColor(...dim);
+      doc.text(`LogSentinel  |  {{ filename }}  |  ${ts}`, W-10, 13, {align:'right'});
+      doc.setDrawColor(...dim); doc.setLineWidth(.3);
+      doc.line(10,16,W-10,16);
+
+      const rows = [
+        {% for ip, data in report.items() %}
+        ['{{ ip }}','{{ data.risk_level }}','{{ data.risk_score }}',
+         '{{ data.summary.total_failures }}','{{ data.summary.total_successes }}',
+         '{{ data.indicators.fail_bursts }}','{{ data.indicators.brute_force_sequences }}',
+         '{{ data.indicators.lateral_movement_hits }}','{{ data.kill_chains | length }}',
+         '{{ data.summary.users_list | join(", ") }}'],
+        {% endfor %}
+      ];
+
+      doc.autoTable({
+        startY:20,
+        head:[['Source IP','Risk','Score','Failures','Successes','Bursts','BF Seqs','Lat Mvmt','KillChains','Users']],
+        body:rows, theme:'plain',
+        styles:{fontSize:7.5,cellPadding:3,textColor:text,font:'helvetica',
+          lineColor:[26,37,53],lineWidth:.2},
+        headStyles:{fillColor:panel,textColor:dim,fontSize:6.5,
+          fontStyle:'normal',lineColor:[26,37,53],lineWidth:.3},
+        alternateRowStyles:{fillColor:[10,15,21]},
+        bodyStyles:{fillColor:panel},
+        didParseCell:(data)=>{
+          if(data.column.index===1 && data.section==='body'){
+            const cm={CRITICAL:red,HIGH:orange,SUSPICIOUS:yellow,NORMAL:green};
+            data.cell.styles.textColor=cm[data.cell.raw]||text;
+            data.cell.styles.fontStyle='bold';
+          }
+        },
+        margin:{left:10,right:10}
+      });
+
+      // PAGE 3: Kill Chains
+      {% if ns.has_chains %}
+      doc.addPage();
+      doc.setFillColor(...bg); doc.rect(0,0,W,H,'F');
+      doc.setFillColor(...accent); doc.rect(0,0,W,1.5,'F');
+      doc.setFontSize(9); doc.setTextColor(...accent);
+      doc.text('// FULL KILL CHAINS', 10, 13);
+      doc.setFontSize(6.5); doc.setTextColor(...dim);
+      doc.text(`LogSentinel  |  {{ filename }}`, W-10, 13, {align:'right'});
+      doc.setDrawColor(...dim); doc.line(10,16,W-10,16);
+
+      let yPos=22, col=0;
+      const margin=10, cardW=(W-margin*2-5)/2;
+
+      {% for ip, data in report.items() %}
+        {% for chain in data.kill_chains %}
+        (function(){
+          const xPos=margin+col*(cardW+5);
+          const cardH=52;
+          if(yPos+cardH>H-8){ doc.addPage(); doc.setFillColor(...bg); doc.rect(0,0,W,H,'F'); yPos=10; }
+          doc.setFillColor(...panel); doc.roundedRect(xPos,yPos,cardW,cardH,1,1,'F');
+          doc.setDrawColor(...red); doc.setLineWidth(.5);
+          doc.line(xPos,yPos,xPos,yPos+cardH);
+          doc.setFillColor(255,45,45,30); doc.rect(xPos,yPos,cardW,8,'F');
+          doc.setTextColor(...red); doc.setFontSize(7); doc.setFont('helvetica','bold');
+          doc.text('KILL CHAIN', xPos+3, yPos+5.5);
+          doc.setTextColor(...dim); doc.setFont('helvetica','normal');
+          doc.text('{{ ip }}', xPos+cardW-3, yPos+5.5, {align:'right'});
+          const sW2=(cardW-6)/3;
+          [
+            {num:'01',lbl:'BRUTE FORCE',col:red,
+             lines:['Fails: {{ chain.stage_1_brute_force.failures }}',
+                    'Start: {{ chain.stage_1_brute_force.start_time }}'.substring(0,28)],
+             ttp:'{{ chain.stage_1_brute_force.ttp }}'.substring(0,35)},
+            {num:'02',lbl:'INITIAL ACCESS',col:orange,
+             lines:['User: {{ chain.stage_2_initial_access.user }}',
+                    'Time: {{ chain.stage_2_initial_access.compromise_time }}'.substring(0,28)],
+             ttp:'{{ chain.stage_2_initial_access.ttp }}'.substring(0,35)},
+            {num:'03',lbl:'LATERAL MVMT',col:yellow,
+             lines:['Target: {{ chain.stage_3_lateral_movement.target_ip }}',
+                    'Delta: {{ chain.stage_3_lateral_movement.delta_minutes }} min'],
+             ttp:'{{ chain.stage_3_lateral_movement.ttp }}'.substring(0,35)}
+          ].forEach((stage,si)=>{
+            const sx=xPos+3+si*sW2, sy=yPos+11;
+            doc.setTextColor(...dim); doc.setFontSize(6);
+            doc.text('STAGE '+stage.num, sx, sy);
+            doc.setTextColor(...stage.col); doc.setFontSize(7.5); doc.setFont('helvetica','bold');
+            doc.text(stage.lbl, sx, sy+5);
+            doc.setFont('helvetica','normal'); doc.setTextColor(...text); doc.setFontSize(6.5);
+            stage.lines.forEach((ln,li)=>doc.text(ln,sx,sy+11+li*5));
+            doc.setTextColor(...accent); doc.setFontSize(5.5);
+            doc.text(stage.ttp, sx, sy+33);
+            if(si<2){doc.setTextColor(...dim);doc.setFontSize(10);doc.text('→',sx+sW2-2,sy+16);}
+          });
+          col++;
+          if(col>=2){col=0;yPos+=56;}
+        })();
+        {% endfor %}
+      {% endfor %}
+      {% endif %}
+
+      doc.save(`LogSentinel_Report_{{ filename }}_${new Date().toISOString().substring(0,10)}.pdf`);
+    } catch(err) {
+      console.error('PDF error:', err);
+      alert('PDF export failed — check console.');
+    } finally {
+      btn.textContent = '↓ Export PDF';
+      btn.disabled = false;
+    }
+  }
+
+  // ── IR ALERT SYSTEM ──────────────────────────────────────────
+  // Browser Notification permission
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+
+  // Web Audio — threat sound generator (no file needed)
+  function playAlertSound(severity) {
+    try {
+      const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type      = 'square';
+      osc.frequency.setValueAtTime(severity === 'CRITICAL' ? 880 : 660, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.3);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.4);
+      if (severity === 'CRITICAL') {
+        setTimeout(() => {
+          const osc2 = ctx.createOscillator();
+          const g2   = ctx.createGain();
+          osc2.connect(g2); g2.connect(ctx.destination);
+          osc2.type = 'square';
+          osc2.frequency.setValueAtTime(660, ctx.currentTime);
+          osc2.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 0.3);
+          g2.gain.setValueAtTime(0.15, ctx.currentTime);
+          g2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+          osc2.start(ctx.currentTime);
+          osc2.stop(ctx.currentTime + 0.4);
+        }, 450);
+      }
+    } catch(e) { console.warn('Sound unavailable:', e); }
+  }
+
+  // Show browser notification
+  function showBrowserNotification(title, body, severity) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification(`[LogSentinel] ${title}`, {
+        body : body,
+        icon : 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🛡️</text></svg>',
+        tag  : 'logsentinel-alert'
+      });
+    }
+  }
+
+  // Show toast notification in UI
+  function showToast(alert) {
+    const container = document.getElementById('toastContainer');
+    const toast     = document.createElement('div');
+    toast.className = `toast toast-${alert.severity}`;
+    toast.id        = `toast-${Date.now()}`;
+    toast.innerHTML = `
+      <span class="toast-icon">${alert.severity === 'CRITICAL' ? '🚨' : '⚠️'}</span>
+      <div class="toast-body">
+        <div class="toast-title">${alert.title}</div>
+        <div class="toast-detail">${alert.ip} — ${alert.detail || ''}</div>
+      </div>
+      <span class="toast-close" onclick="dismissToast('${toast.id}')">✕</span>`;
+    container.appendChild(toast);
+    setTimeout(() => dismissToast(toast.id), 8000);
+  }
+
+  function dismissToast(id) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.animation = 'slideOut .3s ease forwards';
+      setTimeout(() => el.remove(), 300);
+    }
+  }
+
+  // Trigger all alert types
+  function fireAlerts(newAlerts) {
+    if (!newAlerts || !newAlerts.length) return;
+    const highest = newAlerts.find(a => a.severity === 'CRITICAL') || newAlerts[0];
+
+    // 1. Sound
+    playAlertSound(highest.severity);
+
+    // 2. Browser notification
+    showBrowserNotification(
+      highest.title,
+      `${highest.ip} — ${newAlerts.length} alert(s) generated`,
+      highest.severity
+    );
+
+    // 3. Toast for each alert
+    newAlerts.forEach(a => showToast(a));
+
+    // 4. Update bell badge
+    updateAlertBadge();
+  }
+
+  // Update bell badge count
+  async function updateAlertBadge() {
+    try {
+      const res  = await fetch('/api/alerts');
+      const data = await res.json();
+      const badge = document.querySelector('.bell-badge');
+      const btn   = document.querySelector('.topbar-actions .btn-outline:last-of-type');
+      if (data.summary.unread > 0) {
+        if (badge) badge.textContent = data.summary.unread;
+        if (btn)   btn.textContent = `⚠ Alerts (${data.summary.total})`;
+      }
+    } catch(e) {}
+  }
+
+  // Fire alerts for any alerts already on this page load
+  {% if alerts %}
+  window.addEventListener('load', () => {
+    const pageAlerts = [
+      {% for alert in alerts %}
+      { severity: '{{ alert.severity }}', title: '{{ alert.title }}',
+        ip: '{{ alert.ip }}', detail: '{{ alert.detail }}' },
+      {% endfor %}
+    ];
+    // Only fire sound/notification for unread alerts
+    const unread = {{ alert_summary.unread }};
+    if (unread > 0) {
+      const toFire = pageAlerts.slice(0, unread);
+      setTimeout(() => fireAlerts(toFire), 1000);
+    }
+  });
+  {% endif %}
+
+</script>
+</body>
+</html>
