@@ -17,12 +17,14 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from correlation_engine import run_analysis
+from windows_parser import run_windows_analysis, POWERSHELL_EXPORT_SCRIPT
 from alerts import alert_engine, IR_PLAYBOOKS, PHASE_COLORS
 
 UPLOAD_FOLDER      = "uploads"
 WATCH_FOLDER       = "watched_logs"
 RESULTS_FOLDER     = "results"
 ALLOWED_EXTENSIONS = {"log", "txt", "out", "syslog"}
+WINDOWS_EXTENSIONS = {"evtx", "xml", "csv"}
 MAX_CONTENT_MB     = 50
 
 SSH_CONFIG_DEFAULTS = {
@@ -214,6 +216,75 @@ def paste():
     if report: return jsonify({"success":True,"redirect":"/dashboard","new_alerts":len(new_alerts)})
     return jsonify({"error": state["last_fetch_status"]}), 500
 
+
+
+@app.route("/winrm-fetch", methods=["POST"])
+def winrm_fetch():
+    """Pull Windows Event Logs via WinRM (Windows Remote Management)."""
+    data = request.get_json() or {}
+    host     = data.get("host", "")
+    username = data.get("username", "")
+    password = data.get("password", "")
+    use_ssl  = data.get("use_ssl", False)
+
+    if not host or not username:
+        return jsonify({"error": "Host and username required"}), 400
+
+    log_activity(f"WinRM fetch → {host}", "INFO")
+    try:
+        import winrm
+        protocol = "https" if use_ssl else "http"
+        port     = 5986 if use_ssl else 5985
+
+        session = winrm.Session(
+            f"{protocol}://{host}:{port}/wsman",
+            auth=(username, password),
+            transport="ntlm",
+            server_cert_validation="ignore"
+        )
+
+        # Run PowerShell to export security events
+        ps_script = """
+$events = Get-WinEvent -LogName Security -FilterXPath `
+    '*[System[(EventID=4624 or EventID=4625 or EventID=4648 or EventID=4672)]]' `
+    -MaxEvents 2000 -ErrorAction SilentlyContinue
+$events | ForEach-Object { $_.ToXml() }
+"""
+        result = session.run_ps(ps_script)
+
+        if result.status_code != 0:
+            error_msg = result.std_err.decode("utf-8", errors="replace")
+            return jsonify({"error": f"PowerShell error: {error_msg}"}), 500
+
+        xml_output = result.std_out.decode("utf-8", errors="replace")
+        if not xml_output.strip():
+            return jsonify({"error": "No events returned from Windows host"}), 400
+
+        # Save and analyze
+        save_path = os.path.join(UPLOAD_FOLDER, f"winrm_{host.replace('.','_')}.xml")
+        with open(save_path, "w", encoding="utf-8") as f:
+            f.write("<Events>\n" + xml_output + "\n</Events>")
+
+        log_activity(f"WinRM fetch success from {host}", "SUCCESS")
+        report, summary, new_alerts = run_and_store(save_path, f"WIN:{host}")
+        if report:
+            return jsonify({"success": True, "redirect": "/dashboard",
+                           "new_alerts": len(new_alerts)})
+        return jsonify({"error": state["last_fetch_status"]}), 500
+
+    except ImportError:
+        return jsonify({"error": "pywinrm not installed. Run: pip install pywinrm"}), 500
+    except Exception as e:
+        log_activity(f"WinRM error: {str(e)}", "ERROR")
+        return jsonify({"error": f"WinRM error: {str(e)}"}), 500
+
+
+@app.route("/api/powershell-script")
+def powershell_script():
+    """Return PowerShell export script for manual Windows log collection."""
+    from windows_parser import POWERSHELL_EXPORT_SCRIPT
+    return jsonify({"script": POWERSHELL_EXPORT_SCRIPT})
+
 @app.route("/scheduler/start", methods=["POST"])
 def scheduler_start():
     data = request.get_json() or {}
@@ -281,8 +352,7 @@ if __name__ == "__main__":
     print(f"  IR Alerts    : Browser + Email + Sound")
     print("="*58 + "\n")
     try:
-        port = int(os.environ.get("PORT", 5000))
-        app.run(debug=False, host="0.0.0.0", port=port, use_reloader=False)
+        app.run(debug=False, host="127.0.0.1", port=5000, use_reloader=False)
     finally:
         observer.stop(); observer.join()
         if scheduler.running: scheduler.shutdown()
