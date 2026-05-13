@@ -2,8 +2,7 @@
 ╔══════════════════════════════════════════════════════════════╗
 ║   LogSentinel — Flask Web Service                            ║
 ║   Brute Force & Lateral Movement Detection                   ║
-║   + Incident Response Alert Engine                           ║
-╚══════════════════════════════════════════════════════════════╝
+║   + Incident Response Alert Engine                           ╚══════════════════════════════════════════════════════════════╝
 """
 
 import os
@@ -24,7 +23,7 @@ UPLOAD_FOLDER      = "uploads"
 WATCH_FOLDER       = "watched_logs"
 RESULTS_FOLDER     = "results"
 ALLOWED_EXTENSIONS = {"log", "txt", "out", "syslog"}
-WINDOWS_EXTENSIONS = {"evtx", "xml", "csv"}
+WINDOWS_EXTENSIONS = {"evtx", "xml", "csv", "txt"}
 MAX_CONTENT_MB     = 50
 
 SSH_CONFIG_DEFAULTS = {
@@ -58,6 +57,9 @@ def log_activity(message, level="INFO"):
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def allowed_windows_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in WINDOWS_EXTENSIONS
 
 def run_and_store(file_path, source_label):
     try:
@@ -103,6 +105,35 @@ def build_summary(report):
             "failed": [e["summary"]["total_failures"] for e in ip_list],
             "success":[e["summary"]["total_successes"] for e in ip_list],
             "levels": [e["risk_level"] for e in ip_list]
+        },
+        "risk_dist": {
+            "labels": ["CRITICAL","HIGH","SUSPICIOUS","NORMAL"],
+            "data":   [critical, high, suspicious, normal],
+            "colors": ["#ff2d2d","#ff6b35","#ffd700","#00ff88"]
+        }
+    }
+
+def build_windows_summary(report):
+    critical   = sum(1 for e in report.values() if e["risk_level"] == "CRITICAL")
+    high       = sum(1 for e in report.values() if e["risk_level"] == "HIGH")
+    suspicious = sum(1 for e in report.values() if e["risk_level"] == "SUSPICIOUS")
+    normal     = sum(1 for e in report.values() if e["risk_level"] == "NORMAL")
+    ip_list    = sorted(report.values(), key=lambda x: x["risk_score"], reverse=True)[:10]
+    return {
+        "totals": {
+            "ips": len(report), "critical": critical, "high": high,
+            "suspicious": suspicious, "normal": normal,
+            "failed":      sum(e["summary"]["total_failures"]           for e in report.values()),
+            "success":     sum(e["summary"]["total_successes"]          for e in report.values()),
+            "kill_chains": sum(len(e["kill_chains"])                    for e in report.values()),
+            "lateral":     sum(e["indicators"]["lateral_movement_hits"] for e in report.values())
+        },
+        "charts": {
+            "labels":  [e["ip"]                         for e in ip_list],
+            "scores":  [e["risk_score"]                 for e in ip_list],
+            "failed":  [e["summary"]["total_failures"]  for e in ip_list],
+            "success": [e["summary"]["total_successes"] for e in ip_list],
+            "levels":  [e["risk_level"]                 for e in ip_list]
         },
         "risk_dist": {
             "labels": ["CRITICAL","HIGH","SUSPICIOUS","NORMAL"],
@@ -195,6 +226,39 @@ def upload():
             "alerts":[{"title":a["title"],"severity":a["severity"],"ip":a["ip"]} for a in new_alerts]})
     return jsonify({"error": state["last_fetch_status"]}), 500
 
+# ── FIX: Dedicated Windows upload route ─────────────────────────
+@app.route("/upload-windows", methods=["POST"])
+def upload_windows():
+    if "winfile" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    file = request.files["winfile"]
+    if not file.filename:
+        return jsonify({"error": "No file selected"}), 400
+    if not allowed_windows_file(file.filename):
+        return jsonify({"error": "Invalid file. Supported: .evtx, .xml, .csv, .txt"}), 400
+    filename = secure_filename(file.filename)
+    upload_path = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(upload_path)
+    log_activity(f"Windows log uploaded: {filename}", "INFO")
+    try:
+        report, log_type = run_windows_analysis(upload_path)
+        if not report:
+            return jsonify({"error": "No events found in file. Make sure it contains Event IDs 4624/4625/4648/4672."}), 400
+        summary = build_windows_summary(report)
+        state["latest_report"]    = {"report": report, "summary": summary}
+        state["latest_filename"]  = f"WIN:{filename}"
+        state["latest_timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        state["last_fetch_status"] = f"Success at {state['latest_timestamp']}"
+        result_file = os.path.join(RESULTS_FOLDER, f"win_result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+        with open(result_file, "w") as f:
+            json.dump({"report": report, "summary": summary}, f, indent=2, default=str)
+        crit = sum(1 for e in report.values() if e["risk_level"] == "CRITICAL")
+        log_activity(f"Windows analysis done — {filename} ({log_type}) — {len(report)} sources — {crit} CRITICAL", "SUCCESS")
+        return jsonify({"success": True, "redirect": "/dashboard", "new_alerts": 0})
+    except Exception as e:
+        log_activity(f"Windows analysis failed: {str(e)}", "ERROR")
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/ssh-fetch", methods=["POST"])
 def ssh_fetch():
     data = request.get_json() or {}
@@ -216,11 +280,8 @@ def paste():
     if report: return jsonify({"success":True,"redirect":"/dashboard","new_alerts":len(new_alerts)})
     return jsonify({"error": state["last_fetch_status"]}), 500
 
-
-
 @app.route("/winrm-fetch", methods=["POST"])
 def winrm_fetch():
-    """Pull Windows Event Logs via WinRM (Windows Remote Management)."""
     data = request.get_json() or {}
     host     = data.get("host", "")
     username = data.get("username", "")
@@ -238,12 +299,11 @@ def winrm_fetch():
 
         session = winrm.Session(
             f"{protocol}://{host}:{port}/wsman",
-            auth=(username, password),
-            transport="ntlm",
-            server_cert_validation="ignore"
+              auth=(username, password),
+              transport="basic",
+              server_cert_validation="ignore"
         )
 
-        # Run PowerShell to export security events
         ps_script = """
 $events = Get-WinEvent -LogName Security -FilterXPath `
     '*[System[(EventID=4624 or EventID=4625 or EventID=4648 or EventID=4672)]]' `
@@ -260,16 +320,18 @@ $events | ForEach-Object { $_.ToXml() }
         if not xml_output.strip():
             return jsonify({"error": "No events returned from Windows host"}), 400
 
-        # Save and analyze
         save_path = os.path.join(UPLOAD_FOLDER, f"winrm_{host.replace('.','_')}.xml")
         with open(save_path, "w", encoding="utf-8") as f:
             f.write("<Events>\n" + xml_output + "\n</Events>")
 
         log_activity(f"WinRM fetch success from {host}", "SUCCESS")
-        report, summary, new_alerts = run_and_store(save_path, f"WIN:{host}")
+        report, log_type = run_windows_analysis(save_path)
         if report:
-            return jsonify({"success": True, "redirect": "/dashboard",
-                           "new_alerts": len(new_alerts)})
+            summary = build_windows_summary(report)
+            state["latest_report"]    = {"report": report, "summary": summary}
+            state["latest_filename"]  = f"WIN:{host}"
+            state["latest_timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            return jsonify({"success": True, "redirect": "/dashboard", "new_alerts": 0})
         return jsonify({"error": state["last_fetch_status"]}), 500
 
     except ImportError:
@@ -278,10 +340,8 @@ $events | ForEach-Object { $_.ToXml() }
         log_activity(f"WinRM error: {str(e)}", "ERROR")
         return jsonify({"error": f"WinRM error: {str(e)}"}), 500
 
-
 @app.route("/api/powershell-script")
 def powershell_script():
-    """Return PowerShell export script for manual Windows log collection."""
     from windows_parser import POWERSHELL_EXPORT_SCRIPT
     return jsonify({"script": POWERSHELL_EXPORT_SCRIPT})
 

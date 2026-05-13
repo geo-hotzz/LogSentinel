@@ -344,7 +344,6 @@ Mar  7 10:23:05 victim sshd[1234]: Accepted password for msfadmin from 192.168.5
     </div>
   </div>
 
-
   <!-- TAB 5: WINDOWS -->
   <div class="tab-content" id="tab-windows">
     <div class="panel-title">// WINDOWS EVENT LOG — Upload .evtx/.xml or Pull via WinRM</div>
@@ -364,6 +363,7 @@ Mar  7 10:23:05 victim sshd[1234]: Accepted password for msfadmin from 192.168.5
     </div>
 
     <!-- Windows File Upload -->
+    <!-- FIX: field name is "winfile", route is /upload-windows -->
     <div id="win-upload">
       <div style="font-family:var(--mono);font-size:.65rem;color:var(--dim);margin-bottom:.75rem;">
         Supported: .evtx (binary) / .xml (exported) / .csv (PowerShell export) / .txt
@@ -514,7 +514,7 @@ Mar  7 10:23:05 victim sshd[1234]: Accepted password for msfadmin from 192.168.5
     if (type === 'success') setTimeout(() => el.style.display = 'none', 4000);
   }
 
-  // File Upload
+  // File Upload (Linux/SSH logs)
   const fileInput    = document.getElementById('fileInput');
   const fileSelected = document.getElementById('fileSelected');
   const dropzone     = document.getElementById('dropzone');
@@ -659,6 +659,7 @@ Mar  7 10:23:05 victim sshd[1234]: Accepted password for msfadmin from 192.168.5
   }
 
   // Windows File Upload
+  // FIX: field name changed to "winfile", route changed to /upload-windows
   const winFileInput    = document.getElementById('winFileInput');
   const winFileSelected = document.getElementById('winFileSelected');
   const winDropzone     = document.getElementById('winDropzone');
@@ -666,7 +667,8 @@ Mar  7 10:23:05 victim sshd[1234]: Accepted password for msfadmin from 192.168.5
   if(winFileInput) {
     winFileInput.addEventListener('change', () => {
       if(winFileInput.files.length > 0){
-        winFileSelected.textContent = '> ' + winFileInput.files[0].name;
+        winFileSelected.textContent = '> ' + winFileInput.files[0].name +
+          ' (' + (winFileInput.files[0].size / 1024).toFixed(1) + ' KB)';
         winFileSelected.style.display = 'block';
       }
     });
@@ -681,13 +683,15 @@ Mar  7 10:23:05 victim sshd[1234]: Accepted password for msfadmin from 192.168.5
       showAlert('winAlert','Please select a Windows Event Log file.','error'); return;
     }
     const fd = new FormData();
-    fd.append('logfile', winFileInput.files[0]);
+    // FIX: field name is "winfile" to match /upload-windows route
+    fd.append('winfile', winFileInput.files[0]);
     showLoading('Analyzing Windows Event Log...');
     try {
-      const res  = await fetch('/upload', { method:'POST', body:fd });
+      // FIX: calls /upload-windows instead of /upload
+      const res  = await fetch('/upload-windows', { method:'POST', body:fd });
       const data = await res.json();
       hideLoading();
-      if(data.success){ if(data.new_alerts>0) fireAlerts(data.alerts); window.location.href='/dashboard'; }
+      if(data.success){ window.location.href='/dashboard'; }
       else showAlert('winAlert', data.error||'Analysis failed', 'error');
     } catch(e){ hideLoading(); showAlert('winAlert','Request failed: '+e.message,'error'); }
   }
@@ -729,7 +733,6 @@ Mar  7 10:23:05 victim sshd[1234]: Accepted password for msfadmin from 192.168.5
     });
   }
 
-
   // IR Alert functions
   function playAlertSound(severity) {
     try {
@@ -755,7 +758,6 @@ Mar  7 10:23:05 victim sshd[1234]: Accepted password for msfadmin from 192.168.5
       Notification.requestPermission();
     }
   }
-
 </script>
 </body>
 </html>
